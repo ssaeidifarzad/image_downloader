@@ -1,6 +1,9 @@
 package main
 
 import (
+	"errors"
+	"io"
+	"net/http"
 	"os"
 	"sync"
 
@@ -49,4 +52,25 @@ func ConnectDB() (*gorm.DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+func Migrate() {
+	db := GetDB()
+	db.AutoMigrate(&Image{})
+}
+
+func DownloadImage(url string) ([]byte, error) {
+	res, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, errors.New("failed to download image")
+	}
+	data, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
