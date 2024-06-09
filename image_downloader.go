@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"image"
 	"image/jpeg"
 	"image/png"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/PuerkitoBio/goquery"
 	"github.com/joho/godotenv"
 	"github.com/nfnt/resize"
 	"gorm.io/driver/postgres"
@@ -104,4 +106,33 @@ func ResizeImage(data []byte, width int, height int) (*Image, error) {
 func StoreImage(img *Image) error {
 	db := GetDB()
 	return db.Create(img).Error
+}
+
+func FindImages(searchedStr string, maxImages int) ([]string, error) {
+	url := fmt.Sprintf("https://www.google.com/search?hl=en&q=%s&tbm=isch", searchedStr)
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("failed to fetch search results")
+	}
+
+	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var urls []string
+	doc.Find("img").Each(func(i int, s *goquery.Selection) {
+		if src, exists := s.Attr("src"); exists {
+			urls = append(urls, src)
+		}
+		if len(urls) >= maxImages {
+			return
+		}
+	})
+	return urls, nil
 }
