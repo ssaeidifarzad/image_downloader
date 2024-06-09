@@ -100,3 +100,8 @@ func ResizeImage(data []byte, width int, height int) (*Image, error) {
 	}
 	return &Image{data: buf.Bytes(), format: format}, nil
 }
+
+func StoreImage(img *Image) error {
+	db := GetDB()
+	return db.Create(img).Error
+}
