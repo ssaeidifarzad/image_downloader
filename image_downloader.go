@@ -2,17 +2,18 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
 	"image/png"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"sync"
 
-	"github.com/PuerkitoBio/goquery"
 	"github.com/joho/godotenv"
 	"github.com/nfnt/resize"
 	"gorm.io/driver/postgres"
@@ -108,8 +109,17 @@ func StoreImage(img *Image) error {
 	return db.Create(img).Error
 }
 
+type ImageSearchResponse struct {
+	Items []struct {
+		Link string `json:"link"`
+	} `json:"items"`
+}
+
 func FindImages(searchedStr string, maxImages int) ([]string, error) {
-	url := fmt.Sprintf("https://www.google.com/search?hl=en&q=%s&tbm=isch", searchedStr)
+	googleAPIKey := os.Getenv("GOOGLE_API_KEY")
+	googleSearchEngineID := os.Getenv("GOOGLE_SEARCH_ENGINE_ID")
+	url := fmt.Sprintf("https://www.googleapis.com/customsearch/v1?key=%s&cx=%s&q=%s&searchType=image", googleAPIKey, googleSearchEngineID, searchedStr)
+	fmt.Println(url)
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err
@@ -120,19 +130,48 @@ func FindImages(searchedStr string, maxImages int) ([]string, error) {
 		return nil, errors.New("failed to fetch search results")
 	}
 
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
-	if err != nil {
+	var searchResponse ImageSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResponse); err != nil {
 		return nil, err
 	}
 
 	var urls []string
-	doc.Find("img").Each(func(i int, s *goquery.Selection) {
-		if src, exists := s.Attr("src"); exists {
-			urls = append(urls, src)
-		}
+	for _, item := range searchResponse.Items {
+		urls = append(urls, item.Link)
 		if len(urls) >= maxImages {
-			return
+			break
 		}
-	})
+	}
+
 	return urls, nil
+}
+
+func main() {
+	Migrate()
+	searchedStr := "cute kitten"
+	maxImages := 5
+	urls, err := FindImages(searchedStr, maxImages)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	for _, url := range urls {
+		go func(url string) {
+			data, err := DownloadImage(url)
+			if err != nil {
+				log.Fatal(err)
+				return
+			}
+			img, err := ResizeImage(data, 512, 512)
+			if err != nil {
+				log.Fatal(err)
+				return
+			}
+			err = StoreImage(img)
+			if err != nil {
+				log.Fatal(err)
+				return
+			}
+		}(url)
+	}
 }
