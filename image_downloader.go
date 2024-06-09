@@ -1,20 +1,25 @@
 package main
 
 import (
+	"bytes"
 	"errors"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"io"
 	"net/http"
 	"os"
 	"sync"
 
 	"github.com/joho/godotenv"
+	"github.com/nfnt/resize"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 var (
-	dbonce sync.Once
-	db     *gorm.DB
+	dbonce   sync.Once
+	database *gorm.DB
 )
 
 type Image struct {
@@ -29,9 +34,9 @@ func GetDB() *gorm.DB {
 		if err != nil {
 			panic(err)
 		}
-		db = gormconn
+		database = gormconn
 	})
-	return db
+	return database
 }
 
 func ConnectDB() (*gorm.DB, error) {
@@ -73,4 +78,25 @@ func DownloadImage(url string) ([]byte, error) {
 		return nil, err
 	}
 	return data, nil
+}
+
+func ResizeImage(data []byte, width int, height int) (*Image, error) {
+	img, format, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	resizedImg := resize.Resize(uint(width), uint(height), img, resize.Lanczos3)
+	var buf bytes.Buffer
+	switch format {
+	case "jpeg":
+		err = jpeg.Encode(&buf, resizedImg, nil)
+	case "png":
+		err = png.Encode(&buf, resizedImg)
+	default:
+		return nil, errors.New("unsupported image format")
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &Image{data: buf.Bytes(), format: format}, nil
 }
